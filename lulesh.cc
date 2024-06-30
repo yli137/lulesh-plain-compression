@@ -2668,15 +2668,13 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-   for( int i = 0; i < 100; i++ )
-	   send_buffer[i] = NULL;
-
 #else
    MPI_Init(&argc, &argv);
 #endif
     
    MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
+
 #else
    numRanks = 1;
    myRank = 0;

@@ -16,9 +16,6 @@
 #define ALLOW_UNPACKED_ROW   false
 #define ALLOW_UNPACKED_COL   false
 
-char *send_buffer[100];
-int comp_index = 0;
-
 int compress_lz4_buffer( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size )
 {
@@ -52,9 +49,12 @@ int try_decompress( MPI_Request *request, MPI_Status *status, char *srcAddr )
 	return 1;
 }
 
-int wrapper_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
+char *wrapper_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 	         int tag, MPI_Comm comm, MPI_Request *request )
 {
+	int rank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+	
 	int type_size;
 	MPI_Type_size( type, &type_size );
 	type_size *= count;
@@ -62,25 +62,19 @@ int wrapper_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 	char *compressed_buffer = (char*)malloc( type_size );
 	int compressed_size = compress_lz4_buffer( (const char*)buf, type_size, compressed_buffer, type_size );
 
-	if( compressed_size < type_size ){
-		MPI_Datatype ctype;
-		MPI_Type_contiguous( type_size, MPI_BYTE, &ctype );
-		MPI_Type_commit( &ctype );
+	if( compressed_size < type_size && type_size ){
+		printf("rank %d send_size %d orig_size %d\n",
+				rank, compressed_size, type_size);
 
-		int rank;
-		MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+		MPI_Isend( compressed_buffer, compressed_size, MPI_BYTE, dest, tag, comm, request );
 
-		printf("index %d rank %d compress_size %d size %d\n",
-				comp_index,
-				rank,
-				compressed_size,
-				type_size );
-
-		send_buffer[comp_index++] = compressed_buffer;
-		return MPI_Isend( compressed_buffer, 1, ctype, dest, tag, comm, request );
+		return compressed_buffer;
 	}
 
-	return MPI_Isend( buf, count, type, dest, tag, comm, request );
+	printf("rank %d send_size %d orig_size %d\n",
+			rank, type_size, type_size);
+	MPI_Isend( buf, count, type, dest, tag, comm, request );
+	return NULL;
 }
 
 int wrapper_MPI_Irecv( void *buf, int count, MPI_Datatype type, int source,
@@ -392,6 +386,9 @@ void CommSend(Domain& domain, Int_t msgType,
 		Index_t xferFields, Domain_member *fieldData,
 		Index_t dx, Index_t dy, Index_t dz, bool doSend, bool planeOnly)
 {
+	char *data_addr[100];
+	int index = 0;
+
 	if (domain.numRanks() == 1)
 		return ;
 
@@ -450,7 +447,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank - domain.tp()*domain.tp(), msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -466,7 +463,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank + domain.tp()*domain.tp(), msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -489,7 +486,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank - domain.tp(), msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -507,7 +504,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank + domain.tp(), msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -530,7 +527,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank - 1, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -548,7 +545,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			}
 			destAddr -= xferFields*sendCount ;
 
-			wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*sendCount, baseType,
 					myRank + 1, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg]) ;
 			++pmsg ;
@@ -568,7 +565,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dz ;
 			}
 			destAddr -= xferFields*dz ;
-			wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -585,7 +582,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dx ;
 			}
 			destAddr -= xferFields*dx ;
-			wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -602,7 +599,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dy ;
 			}
 			destAddr -= xferFields*dy ;
-			wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -619,7 +616,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dz ;
 			}
 			destAddr -= xferFields*dz ;
-			wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -636,7 +633,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dx ;
 			}
 			destAddr -= xferFields*dx ;
-			wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -653,7 +650,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dy ;
 			}
 			destAddr -= xferFields*dy ;
-			wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -670,7 +667,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dz ;
 			}
 			destAddr -= xferFields*dz ;
-			wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -687,7 +684,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dx ;
 			}
 			destAddr -= xferFields*dx ;
-			wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -704,7 +701,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dy ;
 			}
 			destAddr -= xferFields*dy ;
-			wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -721,7 +718,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dz ;
 			}
 			destAddr -= xferFields*dz ;
-			wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dz, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -738,7 +735,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dx ;
 			}
 			destAddr -= xferFields*dx ;
-			wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dx, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -755,7 +752,7 @@ void CommSend(Domain& domain, Int_t msgType,
 				destAddr += dy ;
 			}
 			destAddr -= xferFields*dy ;
-			wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(destAddr, xferFields*dy, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg]) ;
 			++emsg ;
 		}
@@ -769,7 +766,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(0) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -783,7 +780,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -797,7 +794,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -811,7 +808,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -825,7 +822,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -839,7 +836,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -853,7 +850,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -867,7 +864,7 @@ void CommSend(Domain& domain, Int_t msgType,
 			for (Index_t fi=0; fi<xferFields; ++fi) {
 				comBuf[fi] = (domain.*fieldData[fi])(idx) ;
 			}
-			wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
+			data_addr[index++] = wrapper_MPI_Isend(comBuf, xferFields, baseType, toRank, msgType,
 					MPI_COMM_WORLD, &domain.sendRequest[pmsg+emsg+cmsg]) ;
 			++cmsg ;
 		}
@@ -875,14 +872,12 @@ void CommSend(Domain& domain, Int_t msgType,
 
 	MPI_Waitall(26, domain.sendRequest, status);
 
-	for( int i = 0; i < 100; i++ ){
-		if( send_buffer[i] != NULL ){
-			free( send_buffer[i] );
-			send_buffer[i] = NULL;
+	for( int i = 0; i < index; i++ ){
+		if( data_addr[i] != NULL ){
+			free( data_addr[i] );
+			data_addr[i] = NULL;
 		}
 	}
-
-	comp_index = 0;
 }
 
 /******************************************/

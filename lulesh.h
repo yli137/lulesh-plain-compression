@@ -27,15 +27,12 @@
 
 #define MAX(a, b) ( ((a) > (b)) ? (a) : (b))
 
-extern char *send_buffer[100];
-extern int comp_index;
-
 int compress_lz4_buffer( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size );
 int decompress_lz4_buffer_default( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size );
 int try_decompress( MPI_Request *request, MPI_Status *status, char *srcAddr );
-int wrapper_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
+char *wrapper_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 		int tag, MPI_Comm comm, MPI_Request *request );
 
 // Precision specification
