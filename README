@@ -1,3 +1,7 @@
 **6/28/2024**
 
 Working on getting plain compression. There is a segfault need to be debugged.
+
+**8/20/2024**
+
+restarted plain compression. Need to add tryDecompression after each mpi wait
