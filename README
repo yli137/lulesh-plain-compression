@@ -5,3 +5,7 @@ Working on getting plain compression. There is a segfault need to be debugged.
 **8/20/2024**
 
 restarted plain compression. Need to add tryDecompression after each mpi wait
+
+**9/10/2024**
+
+Realized that MPI_Irecv are also batched. Wrote a function to put receiving address and request into a list. Still need a function to wait for all MPI_Irecvs and try_decompress.

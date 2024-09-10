@@ -27,13 +27,31 @@
 
 #define MAX(a, b) ( ((a) > (b)) ? (a) : (b))
 
+// Structure to store both the MPI_Request and the associated receive buffer address
+typedef struct {
+    MPI_Request request;  // MPI_Request for the non-blocking operation
+    void *buffer;         // Pointer to the receive buffer
+} RequestEntry;
+
+// Structure to manage dynamic list of RequestEntry
+typedef struct {
+    RequestEntry *entries; // Pointer to dynamically allocated array of RequestEntry
+    int size;              // Current number of elements in the list
+    int capacity;          // Current capacity of the list
+} RequestList;
+
+
+RequestList* init_request_list(int initial_capacity);
+void append_request(RequestList *list, MPI_Request *request, char *buffer);
+void free_request_list(RequestList *list);
+
 int compress_lz4_buffer( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size );
 int decompress_lz4_buffer_default( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size );
-int try_decompress( MPI_Request *request, MPI_Status *status, char *srcAddr );
 char *try_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 		int tag, MPI_Comm comm, MPI_Request *request );
+void try_decompress( char *input_buffer, MPI_Status status );
 
 // Precision specification
 typedef float        real4 ;
@@ -636,7 +654,7 @@ void VerifyAndWriteFinalOutput(Real_t elapsed_time,
 void DumpToVisit(Domain& domain, int numFiles, int myRank, int numRanks);
 
 // lulesh-comm
-void CommRecv(Domain& domain, Int_t msgType, Index_t xferFields,
+RequestList *CommRecv(Domain& domain, Int_t msgType, Index_t xferFields,
               Index_t dx, Index_t dy, Index_t dz,
               bool doRecv, bool planeOnly);
 void CommSend(Domain& domain, Int_t msgType,
