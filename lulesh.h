@@ -27,6 +27,22 @@
 
 #define MAX(a, b) ( ((a) > (b)) ? (a) : (b))
 
+#define INITIAL_CAPACITY 26
+
+// Structure to manage a dynamic list of receive addresses and requests
+typedef struct {
+    char **recv_addrs;    // Array of receiving addresses
+    MPI_Request **requests; // Array of MPI requests
+    int size;              // Current number of requests
+    int capacity;          // Max capacity of the list
+} recv_manager_t;
+
+void recv_manager_init(recv_manager_t *manager);
+void recv_manager_add(recv_manager_t *manager, void *recv_addr, MPI_Request *request);
+void recv_manager_free(recv_manager_t *manager);
+
+extern recv_manager_t* manager;
+
 int compress_lz4_buffer( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size );
 int decompress_lz4_buffer_default( const char *input_buffer, int input_size,
@@ -34,6 +50,7 @@ int decompress_lz4_buffer_default( const char *input_buffer, int input_size,
 int try_decompress( MPI_Request *request, MPI_Status *status, char *srcAddr );
 char *try_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 		int tag, MPI_Comm comm, MPI_Request *request );
+int try_MPI_Wait(MPI_Request *request, MPI_Status *status);
 
 // Precision specification
 typedef float        real4 ;

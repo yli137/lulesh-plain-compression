@@ -5,3 +5,7 @@ Working on getting plain compression. There is a segfault need to be debugged.
 **8/20/2024**
 
 restarted plain compression. Need to add tryDecompression after each mpi wait
+
+**9/14/2024**
+
+Plain compression is segfault at decompression. There is not a good way to compare two MPI Request.

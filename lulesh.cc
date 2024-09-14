@@ -2674,8 +2674,8 @@ int main(int argc, char *argv[])
    MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
 
-
    printf("rank %d pid %d\n", myRank, getpid());
+
 #else
    numRanks = 1;
    myRank = 0;
