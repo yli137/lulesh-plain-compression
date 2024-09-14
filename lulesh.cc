@@ -2673,6 +2673,9 @@ int main(int argc, char *argv[])
     
    MPI_Comm_size(MPI_COMM_WORLD, &numRanks) ;
    MPI_Comm_rank(MPI_COMM_WORLD, &myRank) ;
+
+
+   printf("rank %d pid %d\n", myRank, getpid());
 #else
    numRanks = 1;
    myRank = 0;
@@ -2721,11 +2724,12 @@ int main(int argc, char *argv[])
 
    // Initial domain boundary communication 
    CommRecv(*locDom, MSG_COMM_SBN, 1,
-            locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() + 1,
-            true, false) ;
+		   locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() + 1,
+		   true, false) ;
    CommSend(*locDom, MSG_COMM_SBN, 1, &fieldData,
             locDom->sizeX() + 1, locDom->sizeY() + 1, locDom->sizeZ() +  1,
-            true, false) ;
+            true, false);
+
    CommSBN(*locDom, 1, &fieldData) ;
 
    // End initialization
