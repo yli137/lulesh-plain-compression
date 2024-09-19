@@ -92,13 +92,9 @@ void recv_manager_free(recv_manager_t *manager) {
 
 void try_decompress( char *input_buffer, int input_size )
 {
-	LZ4_compressBound(30000);
-
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-	char *decompressed_buffer = (char*)malloc(input_size * 1000);
-	int dsize = decompress_lz4_buffer_default(input_buffer, input_size, decompressed_buffer, input_size*1000);
+	int output_size = input_size * 1000;
+	char *decompressed_buffer = (char*)malloc(output_size);
+	int dsize = decompress_lz4_buffer_default(input_buffer, input_size, decompressed_buffer, output_size);
 
 	if(dsize > input_size)
 		memcpy(input_buffer, decompressed_buffer, dsize);
@@ -110,9 +106,6 @@ void try_decompress( char *input_buffer, int input_size )
 char *try_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 		int tag, MPI_Comm comm, MPI_Request *request )
 {
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
 	int size;
 	MPI_Type_size( type, &size );
 	size *= count;
@@ -146,9 +139,6 @@ int try_MPI_Irecv(void *buf, int count, MPI_Datatype datatype,
 
 int try_MPI_Wait(MPI_Request *request, MPI_Status *status)
 {
-	int rank;
-	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
 	int ret = MPI_Wait(request, status);
 	int tag = status->MPI_TAG;
 	int count;
@@ -159,17 +149,6 @@ int try_MPI_Wait(MPI_Request *request, MPI_Status *status)
 			continue;
 
 		if( ((uintptr_t)request == (uintptr_t)(manager->requests[i])) && (tag == manager->tag[i])){
-#if 0
-			if(rank == PRINT_RANK)
-				printf("MATCH Going to index %d manager->size %d decompress %p request %p matched %p status.TAG %d\n",
-						i,
-						manager->size,
-						manager->recv_addrs[i],
-						request,
-						manager->requests[i],
-						tag);
-#endif
-
 			try_decompress(manager->recv_addrs[i], count);
 			//manager->recv_addrs[i] = NULL;
 			manager->tag[i] = -1;
