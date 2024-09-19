@@ -33,14 +33,17 @@
 typedef struct {
     char **recv_addrs;    // Array of receiving addresses
     MPI_Request **requests; // Array of MPI requests
+    int *tag;
     int size;              // Current number of requests
     int capacity;          // Max capacity of the list
 } recv_manager_t;
 
 void recv_manager_init(recv_manager_t *manager);
-void recv_manager_add(recv_manager_t *manager, void *recv_addr, MPI_Request *request);
+void recv_manager_add(recv_manager_t *manager, void *recv_addr, int tag, MPI_Request *request);
 void recv_manager_free(recv_manager_t *manager);
 
+
+extern int recv_count, wait_count;
 extern recv_manager_t* manager;
 
 int compress_lz4_buffer( const char *input_buffer, int input_size,

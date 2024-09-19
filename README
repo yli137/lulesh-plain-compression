@@ -9,3 +9,7 @@ restarted plain compression. Need to add tryDecompression after each mpi wait
 **9/14/2024**
 
 Plain compression is segfault at decompression. There is not a good way to compare two MPI Request.
+
+**9/19/2024**
+
+Plain compression done, the issue was at the lz4_decompress, where not enough size is provided

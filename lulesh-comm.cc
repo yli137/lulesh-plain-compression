@@ -16,7 +16,13 @@
 #define ALLOW_UNPACKED_ROW   false
 #define ALLOW_UNPACKED_COL   false
 
-recv_manager_t* manager = NULL;;
+recv_manager_t* manager = NULL;
+
+int recv_count = 0;
+int wait_count = 0;
+
+#define PRINT_RANK 0
+#define CHECK_SIZE 402
 
 int compress_lz4_buffer( const char *input_buffer, int input_size,
 		char *output_buffer, int output_size )
@@ -37,6 +43,7 @@ void recv_manager_init(recv_manager_t *manager) {
 	manager->capacity = INITIAL_CAPACITY;
 	manager->recv_addrs = (char**)malloc(manager->capacity * sizeof(char*));
 	manager->requests = (MPI_Request**)malloc(manager->capacity * sizeof(MPI_Request*));
+	manager->tag = (int*)malloc(manager->capacity * sizeof(int));
 
 	for(int i = 0; i < manager->capacity; i++)
 		manager->recv_addrs[i] = NULL;
@@ -48,12 +55,13 @@ void recv_manager_init(recv_manager_t *manager) {
 }
 
 // Function to add a new MPI_Irecv to the list
-void recv_manager_add(recv_manager_t *manager, void *recv_addr, MPI_Request *request) {
+void recv_manager_add(recv_manager_t *manager, void *recv_addr, int tag, MPI_Request *request) {
 	// Check if we need to resize the list
 	if (manager->size >= manager->capacity){
 		manager->capacity *= 2;
 		manager->recv_addrs = (char**) realloc(manager->recv_addrs, manager->capacity * sizeof(char*));
 		manager->requests = (MPI_Request**) realloc(manager->requests, manager->capacity * sizeof(MPI_Request*));
+		manager->tag = (int*) realloc(manager->tag, manager->capacity * sizeof(int));
 
 		if (manager->recv_addrs == NULL || manager->requests == NULL) {
 			printf("--------------Failed to reallocate memory for recv_manager\n");
@@ -64,6 +72,7 @@ void recv_manager_add(recv_manager_t *manager, void *recv_addr, MPI_Request *req
 	// Add the new receiving address and request
 	manager->recv_addrs[manager->size] = (char*)recv_addr;
 	manager->requests[manager->size] = request;
+	manager->tag[manager->size] = tag;
 
 	manager->size++;
 
@@ -73,6 +82,7 @@ void recv_manager_add(recv_manager_t *manager, void *recv_addr, MPI_Request *req
 void recv_manager_free(recv_manager_t *manager) {
 	free(manager->recv_addrs);
 	free(manager->requests);
+	free(manager->tag);
 	manager->recv_addrs = NULL;
 	manager->requests = NULL;
 	manager->size = 0;
@@ -82,12 +92,14 @@ void recv_manager_free(recv_manager_t *manager) {
 
 void try_decompress( char *input_buffer, int input_size )
 {
+	LZ4_compressBound(30000);
+
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-	char *decompressed_buffer = (char*)malloc(input_size * 10);
-	int dsize = decompress_lz4_buffer_default(input_buffer, input_size, decompressed_buffer, input_size*10);
-	
+	char *decompressed_buffer = (char*)malloc(input_size * 1000);
+	int dsize = decompress_lz4_buffer_default(input_buffer, input_size, decompressed_buffer, input_size*1000);
+
 	if(dsize > input_size)
 		memcpy(input_buffer, decompressed_buffer, dsize);
 
@@ -105,13 +117,10 @@ char *try_MPI_Isend( const void *buf, int count, MPI_Datatype type, int dest,
 	MPI_Type_size( type, &size );
 	size *= count;
 
-	char *compress_buffer = (char*)malloc(size);
-	int ret_size = compress_lz4_buffer( (const char*)buf, size, compress_buffer, size );
+	char *compress_buffer = (char*)malloc(size*2);
+	int ret_size = compress_lz4_buffer( (const char*)buf, size, compress_buffer, size*2 );
 
-	if(rank == 0)
-	printf("~~~~compress size %d orig size %d\n", ret_size, size);
-
-	if( ret_size < size && ret_size != 0 && size > 20000 ){
+	if( ret_size < size && ret_size != 0 ){
 		MPI_Isend(compress_buffer, ret_size, MPI_BYTE, dest, tag, comm, request);
 		return compress_buffer;
 	}
@@ -130,7 +139,7 @@ int try_MPI_Irecv(void *buf, int count, MPI_Datatype datatype,
 		recv_manager_init(manager);
 	}
 
-	recv_manager_add(manager, buf, request);
+	recv_manager_add(manager, buf, tag, request);
 
 	return MPI_Irecv(buf, count, datatype, source, tag, comm, request);
 }
@@ -140,28 +149,41 @@ int try_MPI_Wait(MPI_Request *request, MPI_Status *status)
 	int rank;
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+	int ret = MPI_Wait(request, status);
+	int tag = status->MPI_TAG;
+	int count;
+	MPI_Get_count(status, MPI_BYTE, &count);
+
 	for(int i = 0; i < manager->size; i++){
 		if(manager->recv_addrs[i] == NULL)
 			continue;
 
-		int flag1, flag2;
-		int count;
-		MPI_Status check_status;
+		if( ((uintptr_t)request == (uintptr_t)(manager->requests[i])) && (tag == manager->tag[i])){
+#if 0
+			if(rank == PRINT_RANK)
+				printf("MATCH Going to index %d manager->size %d decompress %p request %p matched %p status.TAG %d\n",
+						i,
+						manager->size,
+						manager->recv_addrs[i],
+						request,
+						manager->requests[i],
+						tag);
+#endif
 
-		//MPI_Test(request, &flag1, &check_status);
-		MPI_Test(manager->requests[i], &flag1, &check_status);
-		MPI_Get_count(&check_status, MPI_BYTE, &count);
-
-		if(flag1){
 			try_decompress(manager->recv_addrs[i], count);
+			//manager->recv_addrs[i] = NULL;
+			manager->tag[i] = -1;
 
-			manager->recv_addrs[i] = NULL;
+			int j = 0;
+			for(; j < manager->size; j++)
+				if(manager->tag[j] != -1)
+					break;
+
+			if(j == manager->size)
+				manager->size = 0;
+
+			return ret;
 		}
-
-		if(i == manager->size - 1)
-			manager->size = 0;
-		
-		return MPI_Wait(request, status);
 	}
 }
 
@@ -972,7 +994,7 @@ void CommSend(Domain& domain, Int_t msgType,
 /******************************************/
 
 void CommSBN(Domain& domain, Int_t xferFields, Domain_member *fieldData) {
-	
+
 	//printf("SBN\n\n");
 	if (domain.numRanks() == 1)
 		return ;
